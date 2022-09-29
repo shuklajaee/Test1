@@ -1,0 +1,112 @@
+ALTER PROC [dbo].[PTSL_azimuth_Licence_info](@JV varchar(50) ,@Entity varchar(50), @Licence varchar(50))
+AS 
+/* Return the text box info based on the selected JV , entity and Licence 
+	The default (ie none selected) value is defaultJV, defaultEntity,defaultLicence
+	Check how the gui passes through an 'all' selection (and why it doesn't reset)
+*/
+
+INSERT INTO Licence_debug(dt,JV,Entity,Licence) SELECT CURRENT_TIMESTAMP,@Jv,@Entity,@Licence
+DELETE FROM Licence_debug WHERE id < (SELECT max(id) FROM Licence_debug) -10
+
+
+/*
+-- is the JV assigned when there is no ext_text6 for a given entity
+a text string of null is passed when there is no value. This is not a dbnull
+
+*/
+
+/* 
+	If multiple filters are selected , we want to return data for the fewest rows , this will be licence first, then entity, then JV
+	We could use nested ifs, but it's cleaner to process the first one we can and flag the rest not to process.
+*/
+
+DECLARE @Result_returned int = 0
+
+IF @Licence<>'defaultLicence' AND @Licence<>'null' AND @Licence IS NOT NULL
+BEGIN
+	SET @result_Returned = 1
+
+	INSERT INTO Licence_debug(dt,JV,Entity,Licence) SELECT CURRENT_TIMESTAMP,'Section Licence','','Running'
+	--Simplest option , show a single Licence
+	--cast values to int and then back to string to remove decimals. Need as string as we are going to show the the licence name.
+	-- because it's a string we can't use the gui to format it.
+	SELECT 'Licence' as Header ,@Licence as Value , 1 as sort_order
+		UNION
+	SELECT  'No of Blocks' as Header , cast(cast(EXT_NUM_1 as int)as varchar(5)) as VALUE, 2 as sort_order
+	FROM  PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE = @Licence
+		UNION 
+	SELECT 'Area (sq km)' as Header , cast(cast(EXT_NUM_2 as int) as varchar(5)) as VALUE , 3 as sort_order
+	FROM  PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE = @Licence
+		UNION 
+	SELECT 'Acquisition Date' as Header , cast(EXT_1_DATETIME as varchar(100)) as VALUE, 4 as sort_order
+	FROM  PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE = @Licence
+		UNION 
+	SELECT 'Expiry Date' as Header , cast(EXT_2_DATETIME as varchar(100)) as VALUE, 5 as sort_order
+	FROM  PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE = @Licence
+END -- @Licence
+
+IF @Entity<>'defaultEntity' AND @Entity<>'null' AND @Entity IS NOT NULL AND @result_Returned=0 -- an entity, but no licence has been specified
+BEGIN
+			INSERT INTO Licence_debug(dt,JV,Entity,Licence) SELECT CURRENT_TIMESTAMP,'Section Entity','','Running'
+			SET @result_Returned = 1
+
+			SELECT 'License for (Entity)' as Header, @Entity   as Value,0 as sort_order
+			UNION
+			SELECT 'Licence Count' as Header ,cast(CAST(Count(*)as int) as varchar(5)) as Value , 1 as sort_order
+			FROM (SELECT Distinct ANAL_T1 as ANAL_T1 FROM PTSL_Fact_Data  WHERE ANAL_T0= @Entity) Licence_count
+			--FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT Distinct ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE ANAL_T0= @Entity)
+			UNION
+			SELECT  'No of Blocks' as Header , Cast(cast(SUM(isnull(EXT_NUM_1,0)) as int) as varchar(5)) as VALUE, 2 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT Distinct ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE ANAL_T0= @Entity)
+			UNION 
+			SELECT 'Area (sq km)' as Header , cast(cast(SUM(isnull(EXT_NUM_2,0)) as int) as varchar(5)) as VALUE , 3 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT Distinct ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE ANAL_T0= @Entity)
+		
+END -- try for entity
+IF @JV<>'*' AND @JV<>'null' AND @JV IS NOT NULL AND @result_Returned=0  --asterisk is passed as default for all JV because we are using a personalised field to restrict the data.
+		BEGIN --only a JV has been specified
+					
+			--Remember JVs are in analysis cat 01, but licences are in 02
+			--To pick up the list of licences to include, we go via the fact table because we don't have a way to relate licences to JV
+			--(it also means the licence count will only include rows where we have fact data. Which is probably more useful that licences that 'could' inlcude fact data
+
+			INSERT INTO Licence_debug(dt,JV,Entity,Licence) SELECT CURRENT_TIMESTAMP,'Section JV','','Running'
+			SET @result_Returned = 1
+
+			SELECT 'License for (JV)' as Header,  @JV  as Value,0 as sort_order
+			UNION
+			SELECT 'Licence Count' as Header ,cast(CAST(Count(*)as int) as varchar(5)) as Value , 1 as sort_order
+			FROM (SELECT Distinct ANAL_T1 as ANAL_T1 FROM PTSL_Fact_Data  WHERE [Entity Venture]= @JV) Licence_count
+			--FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE [Entity Venture]= @JV )
+			UNION
+			SELECT  'No of Blocks' as Header , Cast(cast(SUM(isnull(EXT_NUM_1,0)) as int) as varchar(5)) as VALUE, 2 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE [Entity Venture]= @JV )
+			UNION 
+			SELECT 'Area (sq km)' as Header , cast(cast(SUM(isnull(EXT_NUM_2,0)) as int) as varchar(5)) as VALUE , 3 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  WHERE [Entity Venture]= @JV )
+		END --JV specified
+	
+IF		@result_Returned=0
+		BEGIN -- nothing specifed
+			
+			INSERT INTO Licence_debug(dt,JV,Entity,Licence) SELECT CURRENT_TIMESTAMP,'All JV','','Running'
+			SET @result_Returned = 1
+
+			SELECT 'License for ' as Header, 'All JV' as Value,0 as sort_order
+			UNION
+			SELECT 'Licence Count' as Header ,cast(CAST(Count(*)as int) as varchar(5)) as Value , 1 as sort_order
+			FROM (SELECT Distinct ANAL_T1 as ANAL_T1 FROM PTSL_Fact_Data  ) Licence_count
+			--FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 --AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  )
+			UNION
+			SELECT  'No of Blocks' as Header , Cast(cast(SUM(isnull(EXT_NUM_1,0)) as int) as varchar(5)) as VALUE, 2 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 --AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  )
+			UNION 
+			SELECT 'Area (sq km)' as Header , cast(cast(SUM(isnull(EXT_NUM_2,0)) as int) as varchar(5)) as VALUE , 3 as sort_order
+			FROM PTSL_DIM_EXTENDED_TRANSACTION_ANALYSIS WHERE ANL_CAT_ID = 2 --AND ANL_CODE IN (SELECT DISTINCT ANAL_T1 COLLATE DATABASE_DEFAULT FROM PTSL_Fact_Data  )
+		END --nothing specified	
+
+
+
+GO
+
+

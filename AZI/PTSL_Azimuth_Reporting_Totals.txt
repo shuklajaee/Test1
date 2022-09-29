@@ -1,0 +1,81 @@
+USE [PTSL_AZI_Datawarehouse]
+GO
+
+/****** Object:  View [dbo].[PTSL_Azimuth_Reporting_Totals]    Script Date: 3/31/2017 11:35:08 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER VIEW [dbo].[PTSL_Azimuth_Reporting_Totals] As
+/* Use a single view to define totals so we can join summary and details with one object */
+SELECT 
+		ManagementAccounts1Code,ManagementAccounts2Code,--69999 as  TotalsCode, 
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,69999 as Sort_Order,'Revenues' as ManagementAccounts2Name
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts1Code = 600
+		--ManagementAccounts2Code in (61,63) -- note 1, can replace when done with ManagementAccounts1Code = 600
+	GROUP BY
+		ManagementAccounts1Code,ManagementAccounts2Code,JV,Entity,Licence,Dept,Supplier
+
+
+UNION /* Other Operating Expenses*/
+	SELECT 
+		ManagementAccounts1Code,ManagementAccounts2Code, --81098 as TotalsCode,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,81098,'Other Operating expenses' as ManagementAccounts2Name
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts1Code =800
+		AND ManagementAccounts2Code not in( 800)
+	GROUP BY
+		ManagementAccounts1Code,ManagementAccounts2Code	,JV,Entity,Licence,Dept,Supplier
+
+UNION /* EBITDA*/
+	SELECT 
+		ManagementAccounts1Code,ManagementAccounts2Code, --81099 as TotalsCode,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,81099,'EBITDA' as ManagementAccounts2Name
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+	WHERE 
+		ManagementAccounts1Code in(600,700,800)
+		
+	GROUP BY
+		ManagementAccounts1Code,ManagementAccounts2Code	,JV,Entity,Licence,Dept,Supplier
+UNION /* Total OPEX*/
+	SELECT 
+		ManagementAccounts1Code,ManagementAccounts2Code, --99999 as TotalsCode,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,99999,'Profit/Loss Before Tax' as ManagementAccounts2Name
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		AccountType = 3
+		
+	GROUP BY
+		ManagementAccounts1Code,ManagementAccounts2Code	,JV,Entity,Licence,Dept,Supplier
+
+
+UNION /* Total for licence*/
+	SELECT 
+		ManagementAccounts1Code, ManagementAccounts2Code,-- 20975 as TotalsCode,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,20975 as Sort_Order,'Total for licence' as ManagementAccounts2Name
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts1Code = 205
+		AND ManagementAccounts2Code<2099
+		
+	GROUP BY
+		ManagementAccounts1Code,ManagementAccounts2Code	,JV,Entity,Licence,Dept,Supplier
+
+
+GO
+
+

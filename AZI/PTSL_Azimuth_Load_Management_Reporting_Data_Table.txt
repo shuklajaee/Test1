@@ -1,0 +1,92 @@
+
+  ALTER PROC [dbo].[PTSL_Azimuth_Load_Management_Reporting_Data_Table] AS
+  /* Fill a table with all the rows we need for reporting */
+
+
+  INSERT INTO PTSL_Log(log_Message) SELECT 'Loading Management_Reporting_Data_Table (PTSL_Azimuth_Load_Management_Reporting_Data_Table)'
+  TRUNCATE TABLE [PTSL_Azimuth_Management_Reporting_Data_Table]
+  INSERT INTO [PTSL_Azimuth_Management_Reporting_Data_Table]
+  (FinancialYear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,AccountType,JV,
+	Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name,Actual,Budget)
+  SELECT FinancialYear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,AccountType,JV,
+	Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name,Actual,Budget	
+  FROM [PTSL_Azimuth_Load_Management_Reporting_Data]
+
+
+	/* Insert summary rows - we could access these via a view but performance is significantly better when the rows are in a table */
+	/* No need to divide by -1000 for actuals\budget because we have already done this in the table */
+	INSERT INTO PTSL_Log(log_Message) SELECT 'Adding Summary Rows (PTSL_Azimuth_Load_Management_Reporting_Data_Table)'
+	
+	INSERT INTO [PTSL_Azimuth_Management_Reporting_Data_Table]
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,data.ManagementAccounts1Code,data.ManagementAccounts2Code, /* We don't need to worry about indenting of the title based on the code because the row is bolded, and always not indented */
+		data.AccountType,data.JV,data.Entity,data.Licence,data.Dept,data.Supplier,totals.Sort_Order,totals.ManagementAccounts2Name,SUM(Actual) as Actual,SUM(Budget) as Budget,'' as extra_row_title		
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]  data-- 267
+	INNER JOIN 
+			(SELECT distinct ManagementAccounts1Code,ManagementAccounts2Code,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name FROM PTSL_Azimuth_Reporting_Totals 	) totals
+	ON
+		data.ManagementAccounts1Code = totals.ManagementAccounts1Code
+	AND
+		data.ManagementAccounts2Code = totals.ManagementAccounts2Code
+		AND data.JV = totals.JV
+		AND data.Entity = totals.Entity
+		AND data.Licence = totals.Licence
+		AND data.Dept = totals.Dept
+		AND data.Supplier = totals.Supplier
+		and data.AccountType = data.AccountType -- this isn't a user selectable filter, but it is used to drive what data is on a report
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,data.ManagementAccounts1Code,data.ManagementAccounts2Code,
+		data.AccountType,data.JV,data.Entity,data.Licence,data.Dept,data.Supplier,totals.Sort_Order,totals.ManagementAccounts2Name
+
+	/* Add row titles for every possible combination filter so we have consistent colours in charts and row headings on reports , ie we don't lose headings when there is no data after filtering */
+	INSERT INTO PTSL_Log(log_Message) SELECT 'Adding Dummy Rows (PTSL_Azimuth_Load_Management_Reporting_Data_Table)'
+
+	INSERT INTO PTSL_Azimuth_Management_Reporting_Data_Table 
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code as ManagementAccounts2Code,
+		AccountType,JV2,'','','','',Sort_Order,ManagementAccounts2Name,0,0,'dummy'
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+	CROSS JOIN (SELECT DISTINCT JV as JV2 FROM PTSL_Azimuth_Management_Reporting_Data_Table) as ALL_JV
+	WHERE 
+		AccountType=3 /* Only need this on the OPEX tab. don't want to see it on Licence tab (filtered on manaccounts1code = 205). There is no205 for account type 3 */
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV2,Sort_Order,ManagementAccounts2Name
+
+
+	UNION -- add dummy titles for budget licence
+
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,205,ManagementAccounts2Code,
+		'' as AccountType,JV2,'','','','',Sort_Order,ManagementAccounts2Name,0,0,'dummy'
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+		/*	We need to add in every JV because the personalised filter doesn't allow us to 'or' against a dummy row in the same way we can for a user filter
+			We don't want to add in all JVs,Enitities and licences because there are far too many possible combinations
+			(This is why we are using a cross Join)
+		*/
+		CROSS JOIN (SELECT DISTINCT JV as JV2 FROM PTSL_Azimuth_Management_Reporting_Data_Table) as ALL_JV
+	WHERE 
+		ManagementAccounts1Code=205
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts2Code,
+		JV2,Sort_Order,ManagementAccounts2Name
+
+	UNION  --dummy titles for revenues summary
+
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,69999 as ManagementAccounts2Code,
+		3 ,'','','','','',69999,'Revenues',0,0,'dummy'
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+	WHERE 
+		AccountType=3 /* Only need this on the OPEX tab. don't want to see it on Licence tab (filtered on manaccounts1code = 205). There is no205 for account type 3 */
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code
+
+
+GO
+
+

@@ -1,0 +1,11 @@
+ALTER VIEW [dbo].[PTSL_Azimuth_Management_Reporting_Data]
+  AS /* Need to populate an underlying table to get filters to work */
+  /* We can boost performance by caching this data in a table but it's not great */
+  SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name,Actual/-1000.0 as Actual ,Budget/-1000.0 as Budget,'' as extra_row_title
+ FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+		/* We could filter out null management1 and 2 codes, to hide the blank row that appears.
+			This blank row highlights account codes that are missing tags that should be fixed in Sun
+		*/

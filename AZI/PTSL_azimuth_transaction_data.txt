@@ -1,0 +1,86 @@
+USE [PTSL_AZI_Datawarehouse]
+GO
+
+/****** Object:  View [dbo].[PTSL_azimuth_transaction_data]    Script Date: 3/28/2017 9:41:50 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE VIEW [dbo].[PTSL_azimuth_transaction_data] AS
+	--this pulls back transaction level data for a drillthrough
+	--could be put into a table for performance
+	--Uses a copy of the special azi formatting table so we can join on the title of the row.	
+	--Makes sense to re-use this to populate the summary table, although it's a bit backwards!
+
+with ledger_data as(
+SELECT 'BRL' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, BRL_B_SALFLDG.* FROM AZISunSystemsData.dbo.BRL_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.BRL_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'GBP' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, GBP_B_SALFLDG.* FROM AZISunSystemsData.dbo.GBP_B_SALFLDG
+	LEFT JOIN AZISunSystemsData.dbo.GBP_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+ UNION
+SELECT 'IDR' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, IDR_B_SALFLDG.* FROM AZISunSystemsData.dbo.IDR_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.IDR_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'NAD' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, NAD_B_SALFLDG.* FROM AZISunSystemsData.dbo.NAD_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.NAD_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'NOK' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, NOK_B_SALFLDG.* FROM AZISunSystemsData.dbo.NOK_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.NOK_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'PK1' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, PK1_B_SALFLDG.* FROM AZISunSystemsData.dbo.PK1_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.PK1_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'USD' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, USD_B_SALFLDG.* FROM AZISunSystemsData.dbo.USD_B_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.USD_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'EUR' as BusinessUnit,'B' as Ledger,EXT_TEXT_6 as Entity, EUR_B_SALFLDG.* FROM AZISunSystemsData.dbo.EUR_B_SALFLDG
+	LEFT JOIN AZISunSystemsData.dbo.EUR_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'BRL' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, BRL_A_SALFLDG.* FROM AZISunSystemsData.dbo.BRL_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.BRL_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'GBP' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, GBP_A_SALFLDG.* FROM AZISunSystemsData.dbo.GBP_A_SALFLDG
+	LEFT JOIN AZISunSystemsData.dbo.GBP_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+ UNION
+SELECT 'IDR' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, IDR_A_SALFLDG.* FROM AZISunSystemsData.dbo.IDR_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.IDR_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'NAD' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, NAD_A_SALFLDG.* FROM AZISunSystemsData.dbo.NAD_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.NAD_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'NOK' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, NOK_A_SALFLDG.* FROM AZISunSystemsData.dbo.NOK_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.NOK_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'PK1' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, PK1_A_SALFLDG.* FROM AZISunSystemsData.dbo.PK1_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.PK1_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'USD' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, USD_A_SALFLDG.* FROM AZISunSystemsData.dbo.USD_A_SALFLDG 
+	LEFT JOIN AZISunSystemsData.dbo.USD_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+UNION
+SELECT 'EUR' as BusinessUnit,'A' as Ledger,EXT_TEXT_6 as Entity, EUR_A_SALFLDG.* FROM AZISunSystemsData.dbo.EUR_A_SALFLDG
+	LEFT JOIN AZISunSystemsData.dbo.EUR_ANL_CODE_EXT  on ANAL_T0 = ANL_CODE and ANL_CAT_ID = '01'
+)
+
+	--Change. return the [ManagementAccounts2Code] so we can join it to licence sort order
+SELECT 
+[BusinessUnit],	[Ledger],	[Entity],	[ACCNT_CODE],	[PERIOD],	[TRANS_DATETIME],	[JRNAL_NO],	[JRNAL_LINE],	[AMOUNT]*-1 as [AMOUNT],	[D_C],	[ALLOCATION],
+[JRNAL_TYPE],	[JRNAL_SRCE],	[TREFERENCE],	[DESCRIPTN],	[ENTRY_DATETIME],	[ENTRY_PRD],	[DUE_DATETIME],	[ALLOC_REF],	[ALLOC_DATETIME],
+[ALLOC_PERIOD],	[ASSET_IND],	[ASSET_CODE],	[ASSET_SUB],	[CONV_CODE],	[CONV_RATE],	[OTHER_AMT]*-1 as [OTHER_AMT],	[OTHER_DP],	[CLEARDOWN],	[REVERSAL],
+[LOSS_GAIN],	[ROUGH_FLAG],	[IN_USE_FLAG],	[ANAL_T0],	[ANAL_T1],	[ANAL_T2],	
+CASE WHEN [ANAL_T3] ='' THEN '--' ELSE [ANAL_T3] END AS ANAL_T3 , -- Don't want blank dept. /* Make the change here so it works on detail and summary */
+[ANAL_T4],	[ANAL_T5],	[ANAL_T6],	[ANAL_T7],	[ANAL_T8],	[ANAL_T9],
+[POSTING_DATETIME],	[ALLOC_IN_PROGRESS],	[HOLD_REF],	[HOLD_OP_ID],	[BASE_RATE],	[BASE_OPERATOR],	[CONV_OPERATOR],	[REPORT_RATE],	[REPORT_OPERATOR],	[REPORT_AMT],
+[MEMO_AMT],	[EXCLUDE_BAL],	[LE_DETAILS_IND],	[CONSUMED_BDGT_ID],	[CV4_CONV_CODE],	[CV4_AMT],	[CV4_CONV_RATE],	[CV4_OPERATOR],	[CV4_DP],	[CV5_CONV_CODE],	[CV5_AMT],	[CV5_CONV_RATE],
+[CV5_OPERATOR],	[CV5_DP],	[LINK_REF_1],	[LINK_REF_2],	[LINK_REF_3],	[ALLOCN_CODE],	[ALLOCN_STMNTS],	[OPR_CODE],	[SPLIT_ORIG_LINE],	[VAL_DATETIME],	[SIGNING_DETAILS],	[INSTLMT_DATETIME],
+[PRINCIPAL_REQD],	[BINDER_STATUS],	[AGREED_STATUS],	[SPLIT_LINK_REF],	[PSTG_REF],	[TRUE_RATED],	[HOLD_DATETIME],	[HOLD_TEXT],	[INSTLMT_NUM],	[SUPPLMNTRY_EXTSN],	[APRVLS_EXTSN],	[REVAL_LINK_REF],
+[SAVED_SET_NUM],	[AUTHORISTN_SET_REF],	[PYMT_AUTHORISTN_SET_REF],	[MAN_PAY_OVER],	[PYMT_STAMP],	[AUTHORISTN_IN_PROGRESS],	[SPLIT_IN_PROGRESS],	[VCHR_NUM],	[JNL_CLASS_CODE],	[ORIGINATOR_ID],	[ORIGINATED_DATETIME],
+[LAST_CHANGE_USER_ID],	[LAST_CHANGE_DATETIME],	[AFTER_PSTG_ID],	[AFTER_PSTG_DATETIME],	[POSTER_ID],	[ALLOC_ID],	[JNL_REVERSAL_TYPE],	[row_sort],	[accountcode],	[ManagementAccounts2Name],[ManagementAccounts2Code],[ManagementAccounts1Code],	[BusinessExpenditureType],	[bold_row],	[isLicence]
+FROM Ledger_data
+RIGHT JOIN (SELECT DISTINCT row_sort,accountcode,ManagementAccounts2Name,[ManagementAccounts1Code],[ManagementAccounts2Code],BusinessExpenditureType,bold_row,isLicence FROM PTSL_azimuth_Summary_lookup )  -- distinct so we don't duplicate JV,or BudgetLedger
+PTSL_azimuth_Summary_lookup ON accountcode = ACCNT_CODE COLLATE database_default
+
+GO
+

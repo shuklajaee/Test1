@@ -1,0 +1,480 @@
+ALTER PROC [dbo].[PTSL_ETL_DimData]
+
+@DatabaseName varchar(50)='SunSystemsData',
+@BusinessUnitKey int=0,
+@BusinessUnitPrefix varchar(3)='',
+@DatabaseId int=0
+
+/*
+exec [dbo].[PTSL_ETL_DimData] 'SunSystemsData',12,'S01',1
+select distinct AFE1Code,AFE1Name from [dbo].[PTSL_Dim_LedgerAnalysis]
+*/
+
+as
+
+set nocount on
+
+declare 
+	@SQL nvarchar(max),
+	@Params nvarchar(1000),
+	@LedgerLoop tinyint,
+	@Char varchar(1),
+	@Error tinyint
+
+delete dbo.PTSL_Fact_Data
+where DatabaseId=@DatabaseId and BusinessUnitKey=@BusinessUnitKey
+
+-- [0] Update lookups
+
+/* These aren't right for AZI, Execute the AZI Specific Business Expenditure Type instead
+update [dbo].[PTSL_Dim_Accounts] -- SELECT * FROM [PTSL_Dim_Accounts]
+set BusinessExpenditureType='CAPEX'
+where ManagementAccounts1Code in('B-CA-INV','B-FA-EDR','B-FA-FDR','B-FA-INT','B-FA-ZDP') 
+and BusinessUnitKey=@BusinessUnitKey
+
+update [dbo].[PTSL_Dim_Accounts]
+set BusinessExpenditureType='OPEX'
+where ManagementAccounts1Code in('P-OP-ABA','P-OP-BAN','P-OP-CRE','P-OP-CRU','P-OP-DEP','P-OP-DIV','P-OP-FIN','P-OP-G&A','P-OP-HSS','P-OP-NDD','P-OP-NES','P-OP-OTH','P-OP-PMN','P-OP-PSH','P-OP-SES','P-OP-TXD','P-OP-TXE','P-OP-TXP','P-OP-WOV')
+and BusinessUnitKey=@BusinessUnitKey
+
+update [dbo].[PTSL_Dim_Accounts]
+set BusinessExpenditureType='G&A'
+where ManagementAccounts1Code in('P-GA-BAN','P-GA-BUS','P-GA-CON','P-GA-DEP','P-GA-ENT','P-GA-FEE','P-GA-FEX','P-GA-OHS','P-GA-OTH','P-GA-REN','P-GA-REP','P-GA-STA','P-GA-TRA')
+and BusinessUnitKey=@BusinessUnitKey
+
+*/
+/* AZI Specific Business Expenditure Type */
+
+UPDATE [PTSL_Dim_Accounts] SET BusinessExpenditureType = 'OPEX' WHERE AccountTypeNumber = 3
+
+
+if not exists(select 1 from dbo.PTSL_Dim_Accounts where BusinessExpenditureType!='na')
+	begin
+		update [dbo].[PTSL_Dim_Accounts] -- SELECT * FROM [PTSL_Dim_Accounts]
+		set BusinessExpenditureType='CAPEX' -- default all to CAPEX	
+	end
+
+set @LedgerLoop=75 -- Sun logs data from A-K in seperate tables select char(65)
+
+while @LedgerLoop>=65
+	begin
+		set @Error=0
+		set @Char=char(@LedgerLoop)
+		-- [1] Get basic finance data [select count(1) from dbo.PTSL_Fact_Data
+		set @SQL='
+		insert into dbo.PTSL_Fact_Data(BusinessUnitKey, [GL Code], Period, [Amount Base], [Sign], [Transaction Type], 
+		[Transaction Source], [Transaction Currency], [Amount Currency], [Entity Venture], AFE, [Supplier Analysis],
+		AmountInverse,AccountCode,Allocated,[Age In Days],[Age In Months],
+		ANAL_T0,ANAL_T1,ANAL_T2,
+		ANAL_T3,ANAL_T4,ANAL_T5,
+		ANAL_T6,ANAL_T7,ANAL_T8,ANAL_T9,DatabaseId,BudgetLedger,GNRL_DESCR_02,[Reporting Amount])
+		SELECT 
+			@BusinessUnitKey as BusinessUnitKey, 
+			[GL Code]=x.ACCNT_CODE,
+			[Period]=x.PERIOD,
+			[Amount Base]=sum(x.AMOUNT),
+			[Sign]=x.D_C,
+			[Transaction Type]=x.JRNAL_TYPE,
+			[Transaction Source]=x.JRNAL_SRCE,
+			[Transaction Currency]=x.CONV_CODE,
+			[Amount Currency]=sum(x.OTHER_AMT),
+			[Entity Venture]=''--'',
+			[AFE]=x.ANAL_T1,
+			[Supplier Analysis]=x.ANAL_T4,
+			AmountInverse=sum(x.AMOUNT*-1),
+			[AccountCode]=x.ACCNT_CODE,
+			[Allocated]=max(CASE WHEN ALLOCATION IN (''C'',''A'',''P'') THEN 1 ELSE 0 END),
+			[Age In Days]=DATEDIFF(dd,DUE_DATETIME,getdate()),
+			[Age In Months]=DATEDIFF(mm,DUE_DATETIME,getdate()),
+			x.ANAL_T0,
+			x.ANAL_T1,
+			x.ANAL_T2,
+			x.ANAL_T3,
+			x.ANAL_T4,
+			x.ANAL_T5,
+			x.ANAL_T6,
+			x.ANAL_T7,
+			x.ANAL_T8,
+			x.ANAL_T9,
+			DatabaseId=@DatabaseId,
+			BudgetLedger=@Char,
+			GNRL_DESCR_02,
+			SUM(x.REPORT_AMT)
+		FROM 
+			['+@DatabaseName+'].[dbo].['+@BusinessUnitPrefix+'_'+@Char+'_SALFLDG] x with(nolock)
+		LEFT JOIN 
+			['+@DatabaseName+'].[dbo].['+@BusinessUnitPrefix+'_'+@Char+'_SALFLDG_LAD] lad with(nolock) on x.JRNAL_NO = lad.JRNAL_NO AND x.JRNAL_LINE = lad.JRNAL_LINE -- jno and jline are unique within BU
+			
+		group by
+			x.ACCNT_CODE,
+			x.PERIOD,
+			x.D_C,
+			x.ALLOCATION,
+			x.JRNAL_TYPE,
+			x.JRNAL_SRCE,
+			x.CONV_CODE,
+			x.ANAL_T0,
+			x.ANAL_T1,
+			x.ANAL_T4,
+			x.DUE_DATETIME,
+			x.ANAL_T2,
+			x.ANAL_T3,
+			x.ANAL_T5,
+			x.ANAL_T6,
+			x.ANAL_T7,
+			x.ANAL_T8,
+			x.ANAL_T9,
+			GNRL_DESCR_02'
+		set @Params='@BusinessUnitKey int,@DatabaseId int,@LedgerLoop tinyint,@Char varchar(1)'
+		begin try
+			--SELECT @SQL
+			exec sp_executesql 
+				@SQL,
+				@Params,
+				@BusinessUnitKey=@BusinessUnitKey,
+				@DatabaseId=@DatabaseId,
+				@LedgerLoop=@LedgerLoop,
+				@Char=@Char
+		end try
+		begin catch
+			set @Error=1
+		end catch
+
+		if @Error=0
+			begin
+				if not exists(select 1 from dbo.PTSL_Dim_Ledger where [BusinessUnitKey]=@BusinessUnitKey and DatabaseId=@DatabaseId and BudgetLedger=@Char)
+					begin
+						if exists(select 1 from dbo.PTSL_Fact_Data where [BusinessUnitKey]=@BusinessUnitKey and DatabaseId=@DatabaseId and BudgetLedger=@Char)
+							begin
+								insert into dbo.PTSL_Dim_Ledger(BusinessUnitKey, DatabaseId, BudgetLedger)
+								values(@BusinessUnitKey,@DatabaseId,@Char)
+							end
+					end
+			end	
+		set @LedgerLoop=@LedgerLoop-1
+	end
+
+-- [1.0.1] add budget ledger type. This *MUST* be configured manually to determine exactly what the ledger type is
+update x
+set x.[BudgetLedgerType]=xx.[BudgetLedgerType] -- select * from PTSL_Fact_Data
+from PTSL_Fact_Data x
+inner join [dbo].[PTSL_Dim_Ledger] xx on x.DatabaseId=xx.DatabaseId and x.BusinessUnitKey=xx.BusinessUnitKey and x.BudgetLedger=xx.BudgetLedger
+
+-- [2] add business unit data
+update x
+set [BusinessUnit]=b.BusinessUnit
+from [dbo].[PTSL_Fact_Data] x
+inner join [dbo].[PTSL_Dim_BusinessUnits] b on b.BusinessUnitKey=x.BusinessUnitKey and b.DatabaseId=x.DatabaseId
+where x.BusinessUnitKey=@BusinessUnitKey and x.DatabaseId=@DatabaseId
+
+-- [3] Add Year/Period
+update x
+set 
+	x.[FinancialPeriod]=b.FinancialPeriod,
+	x.FinancialYear=b.FinancialYear,
+	x.PeriodDate=dateadd(month,1,b.FinancialPeriodStartDate),
+	x.FinancialPeriodKey=b.FinancialPeriodKey
+from 
+	[dbo].[PTSL_Fact_Data] x -- alter table PTSL_Fact_Data add FinancialPeriodKey int
+inner join 
+	[dbo].[PTSL_Dim_FinancialPeriods] b on b.BusinessUnitKey=x.BusinessUnitKey and b.FinancialPeriodKey=x.[Period] and b.DatabaseId=x.DatabaseId
+where 
+	x.BusinessUnitKey=@BusinessUnitKey and 
+	x.DatabaseId=@DatabaseId
+
+-- [4] Update the 'BusinessExpenditureType' and 'CashGL' flag
+update x
+set 
+	x.BusinessExpenditureType=isnull(b.BusinessExpenditureType,'na'),
+	x.CashGL=case when b.[ManagementAccounts1Code] in('B-CA-CBN') then 1 else 0 end
+from 
+	[dbo].[PTSL_Fact_Data] x -- select * from [PTSL_Fact_Data] where cashgl=1
+left join 
+	[dbo].[PTSL_Dim_Accounts] b on 
+		b.AccountCode collate Latin1_General_BIN=x.[GL Code] collate Latin1_General_BIN and 
+		b.BusinessUnitKey=x.BusinessUnitKey and
+		b.DatabaseId=x.DatabaseId
+where x.BusinessUnitKey=@BusinessUnitKey and x.DatabaseId=@DatabaseId
+
+-- [5] Set YearStart which is the MONTH and DAY element ONLY. Important. Used by insight to work out cumlative numbers based
+-- on a dynamic filter
+update x
+set 
+	x.YearStart=	(	
+					select top 1 substring(convert(varchar(8),xx.PeriodDate,112),5,2)+'-'+right(convert(varchar(8),xx.PeriodDate,112),2) 
+					from [dbo].[PTSL_Fact_Data] xx 
+					where xx.FinancialPeriod=1 and xx.DatabaseId=@DatabaseId
+					),
+	x.Capex=case when x.[BusinessExpenditureType]='Capex' then x.AmountInverse else 0 end,
+	x.Opex=case when x.[BusinessExpenditureType]='Opex' then x.AmountInverse else 0 end,
+	x.GA=case when x.[BusinessExpenditureType]='G&A' then x.AmountInverse else 0 end,
+	--  cleaner 'debt' slots
+	[Age In Months]=case when [Age In Months]>12 then 99 when [Age In Months]<0 then -1 else [Age In Months] end
+from 
+	[dbo].[PTSL_Fact_Data] x
+where
+	x.BusinessUnitKey=@BusinessUnitKey and x.DatabaseId=@DatabaseId
+
+-- [6] Add Account Type and Name alter table [dbo].[PTSL_Fact_Data] add [ManagementAccounts1Name] varchar(50)
+update 
+	x
+set
+	x.AccountType=a.AccountType,
+	x.AccountDescription=a.AccountDescription
+FROM 
+	[dbo].[PTSL_Fact_Data] x
+inner join
+	[dbo].[PTSL_Dim_Accounts] a on 
+		x.[Supplier Analysis] collate Latin1_General_CI_AS=a.AccountCode collate Latin1_General_CI_AS and 
+		x.[BusinessUnitKey]=a.[BusinessUnitKey] and
+		x.DatabaseId=a.DatabaseId
+where
+	x.BusinessUnitKey=@BusinessUnitKey and x.DatabaseId=@DatabaseId
+
+-- Set Other GL specific data
+update 
+	x
+set
+	x.ManagementAccounts1Name=a.ManagementAccounts1Name
+FROM 
+	[dbo].[PTSL_Fact_Data] x
+inner join
+	[dbo].[PTSL_Dim_Accounts] a on 
+		x.AccountCode collate Latin1_General_CI_AS=a.AccountCode collate Latin1_General_CI_AS and 
+		x.[BusinessUnitKey]=a.[BusinessUnitKey] and
+		x.DatabaseId=a.DatabaseId
+where x.BusinessUnitKey=@BusinessUnitKey and x.DatabaseId=@DatabaseId
+
+--[7] Update the Entity Venture to use the Extended Transaction Anaylsis table
+--(Entity Venture isn't Alway the Value in Anal_T0. 
+--Make sure we initally load -- to Entity Venture so the populated value is from the lookup, not from the ANAL_T0 field
+--A problem example (March 2017) is when Anal_T0 holds HW , but there is no associated Entity Venture
+--To load -- Entity Venture we replaced [Entity Venture]= x.ANAL_T0, with [Entity Venture]= ''--'', (EV isn't nullable)
+UPDATE fact
+SET [Entity Venture] = EXT_TEXT_6
+FROM dbo.PTSL_Fact_Data fact
+INNER JOIN 
+PTSL_DIM_Extended_Transaction_Analysis a ON a.ANL_CAT_ID = '01' and ANL_CODE = ANAL_T0 COLLATE DATABASE_DEFAULT
+
+
+--[8] Remove records from the fact table based on the configuration parameters
+--We could prevent them from being loaded. But it is simpler(less likely to error!) to do the delete after the data has been loaded
+
+
+--DELETE Budget data that doesn't have the right GNRL_DESR_02 value
+DELETE 
+FROM 
+	PTSL_Fact_Data
+WHERE 
+	Budgetledger ='B'
+AND
+	isnull(GNRL_DESCR_02,'XX') <> (SELECT value FROM Admin.Mart_Configuration WHERE settingID = 'BUDGETLOADEDPERIOD')
+
+
+--[9] Reverse the sign on P&L Accounts
+UPDATE PTSL_Fact_Data
+SET [Reporting Amount] = [Reporting Amount] * -1 , [Amount Base] = [Amount Base] * -1
+FROM PTSL_Fact_Data data
+INNER JOIN PTSL_Dim_Accounts Accounts
+on data.BusinessUnitKey= accounts.BusinessUnitKey AND data.AccountCode = accounts.accountCode
+WHERE Accounts.AccountType='Profit and Loss'
+
+
+--DELETE Actuals data that's after the desired reporting period
+DELETE 
+FROM 
+	PTSL_Fact_Data
+WHERE 
+	Budgetledger ='A'
+AND
+	PERIOD > (SELECT value FROM Admin.Mart_Configuration WHERE settingID = 'REPORTINGPERIOD')
+INSERT INTO PTSL_Log(log_message) SELECT 'Reporting Period'	+ 	 (SELECT value FROM Admin.Mart_Configuration WHERE settingID = 'REPORTINGPERIOD')
+INSERT INTO PTSL_Log(log_message) SELECT 'DELETED ' + cast(@@Rowcount as varchar(10)) 'Actuals after the Reporting Period'		
+delete dbo.PTSL_Fact_Data_AFE_Year
+where DatabaseId=@DatabaseId and BusinessUnitKey=@BusinessUnitKey
+
+-- select * from PTSL_Fact_Data_AFE_Year
+
+insert into dbo.PTSL_Fact_Data_AFE_Year(FinancialYear,BusinessUnitKey,AFE,BusinessUnit,BusinessExpenditureType,YTDCapex,[Entity Venture],
+YTDCash,DatabaseId,BudgetLedger)
+Select 
+	c1.FinancialYear,
+	c1.BusinessUnitKey,
+	c1.AFE,
+	c1.BusinessUnit,
+	c1.BusinessExpenditureType,
+	YTDCapex=sum(C2.Capex),
+	c1.[Entity Venture],
+	YTDCash=sum(c2.YTDCash),
+	DatabaseId=@DatabaseId,
+	c1.BudgetLedger
+FRom	(
+		select 
+			Capex=sum(Capex),
+			FinancialYear,
+			BusinessUnitKey,
+			AFE,
+			BusinessUnit,
+			BusinessExpenditureType,
+			[Entity Venture],
+			YTDCash=sum(case when x.CashGL=1 then AmountInverse else 0 end),
+			BudgetLedger
+		from 
+			[dbo].[PTSL_Fact_Data] x 
+		where
+			x.DatabaseId=@DatabaseId and
+			x.BusinessUnitKey=@BusinessUnitKey
+		group by 
+			FinancialYear,
+			BusinessUnitKey,
+			AFE,
+			BusinessUnit,
+			BusinessExpenditureType,
+			[Entity Venture],
+			BudgetLedger
+		) c1 ,  
+		(
+		select 
+			Capex=sum(Capex),
+			FinancialYear,
+			BusinessUnitKey,
+			AFE,
+			BusinessUnit,
+			BusinessExpenditureType,
+			[Entity Venture],
+			YTDCash=sum(case when x.CashGL=1 then AmountInverse else 0 end),
+			BudgetLedger
+		from 
+			[dbo].[PTSL_Fact_Data] x 
+		where
+			x.DatabaseId=@DatabaseId and
+			x.BusinessUnitKey=@BusinessUnitKey
+		group by 
+			FinancialYear,
+			BusinessUnitKey,
+			AFE,
+			BusinessUnit,
+			BusinessExpenditureType,
+			[Entity Venture],
+			BudgetLedger
+		) c2
+Where 
+	c1.BudgetLedger=c2.BudgetLedger and
+	c1.FinancialYear>=c2.FinancialYear and
+	c1.BusinessUnitKey=c2.BusinessUnitKey and
+	c1.AFE=c2.AFE collate Latin1_General_BIN and
+	c1.BusinessUnit=c2.BusinessUnit collate Latin1_General_BIN and
+	c1.BusinessExpenditureType=c2.BusinessExpenditureType collate Latin1_General_BIN and
+	c1.[Entity Venture]=c2.[Entity Venture] collate Latin1_General_BIN
+group by 
+	c1.FinancialYear,
+	c1.BusinessUnitKey,
+	c1.AFE,
+	c1.BusinessUnit,
+	c1.BusinessExpenditureType,
+	c1.[Entity Venture],
+	c1.BudgetLedger
+order by 
+	c1.FinancialYear  asc/*,
+	c1.AFE*/
+
+delete dbo.PTSL_Fact_Data_CashDebt -- select * from PTSL_Fact_Data_CashDebt
+where DatabaseId=@DatabaseId and BusinessUnitKey=@BusinessUnitKey
+
+insert into dbo.PTSL_Fact_Data_CashDebt(BusinessUnit,Cash,Debt,[Entity Venture],FinancialYear,DatabaseId,BusinessUnitKey,
+BudgetLedger)
+select distinct 
+	BusinessUnit,
+	Cash=0,
+	Debt=0,
+	[Entity Venture],
+	FinancialYear,
+	DatabaseId,
+	BusinessUnitKey,
+	BudgetLedger
+from
+	dbo.PTSL_Fact_Data x
+where
+	x.DatabaseId=@DatabaseId and
+	x.BusinessUnitKey=@BusinessUnitKey
+
+update x
+set 
+	x.Cash=c.Cash,
+	x.Debt=c.Debt
+from
+	dbo.PTSL_Fact_Data_CashDebt x
+inner join
+	(
+	select
+		BusinessUnit=BusinessUnit collate Latin1_General_CI_AS,
+		Cash=sum(case when CashGL=1 then [AmountInverse] else 0 end),
+		Debt=sum(case when [AccountType]='Creditors' and Allocated=0 then [AmountInverse] else 0 end),
+		[Entity Venture]=[Entity Venture] collate Latin1_General_CI_AS,
+		FinancialYear,
+		BudgetLedger 
+	from
+		dbo.PTSL_Fact_Data c
+	where
+		c.DatabaseId=@DatabaseId and
+		c.BusinessUnitKey=@BusinessUnitKey
+	group by
+		BusinessUnit,
+		[Entity Venture],
+		FinancialYear,
+		BudgetLedger
+	)c on 
+		x.BusinessUnit=c.BusinessUnit and 
+		x.[Entity Venture]=c.[Entity Venture] and 
+		x.FinancialYear=c.FinancialYear and
+		x.BudgetLedger=c.BudgetLedger
+where
+	x.DatabaseId=@DatabaseId and
+	x.BusinessUnitKey=@BusinessUnitKey
+
+-- Add the Budget Ledger Type alter table PTSL_Fact_Data_CashDebt add BudgetLedgerType varchar(10)
+update x
+set x.[BudgetLedgerType]=xx.[BudgetLedgerType] 
+from dbo.PTSL_Fact_Data_CashDebt x
+inner join [dbo].[PTSL_Dim_Ledger] xx on 
+	x.DatabaseId=xx.DatabaseId and 
+	x.BusinessUnitKey=xx.BusinessUnitKey and 
+	x.BudgetLedger=xx.BudgetLedger
+
+-- set the 'BudgetLedgerType' in 'PTSL_Fact_Data_AFE_Year'
+update x
+set x.[BudgetLedgerType]=xx.[BudgetLedgerType] 
+from dbo.PTSL_Fact_Data_AFE_Year x 
+inner join [dbo].[PTSL_Dim_Ledger] xx on 
+	x.DatabaseId=xx.DatabaseId and 
+	x.BusinessUnitKey=xx.BusinessUnitKey and 
+	x.BudgetLedger=xx.BudgetLedger
+
+-- Set the 'CURRENT' financial year period. This is vital so that the reports know the correct month/year
+update xx
+set 
+	xx.[CurrentFinancialPeriodKey]=x.FinancialPeriodKey,
+	xx.[CurrentFinancialYear]=x.FinancialYear,
+	xx.[CurrentFinancialPeriod]=x.FinancialPeriod
+from [dbo].[PTSL_Fact_Data] xx
+inner join
+	(
+	select top 1 * from [dbo].[PTSL_Dim_FinancialPeriods] x
+	where x.FinancialPeriodStartDate<GETDATE()
+	order by x.FinancialPeriodStartDate desc
+	)x on
+		xx.DatabaseId=x.DatabaseId and
+		xx.BusinessUnitKey=x.BusinessUnitKey 
+where
+	xx.BusinessUnitKey=@BusinessUnitKey and
+	xx.DatabaseId=@DatabaseId
+
+-- Set the AFE Name
+update f
+set f.AFEName=LEFT(a.AFE1Name,100)
+from [dbo].[PTSL_Fact_Data] f -- alter table [dbo].[PTSL_Fact_Data] add AFEName varchar(100)
+inner join dbo.PTSL_Dim_LedgerAnalysis a on f.DatabaseId=a.DatabaseId and f.BusinessUnitKey=a.BusinessUnitKey and a.AFE1Code collate Latin1_General_BIN=f.AFE collate Latin1_General_BIN
+where
+	f.BusinessUnitKey=@BusinessUnitKey and
+	f.DatabaseId=@DatabaseId
+

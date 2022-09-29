@@ -1,0 +1,275 @@
+ALTER procEDURE [dbo].[PTSL_ETL_Refresh]
+
+as 
+
+set nocount on
+
+/* this is the O-N-L-Y routine that needs to be run to build/re-build the warehouse data*/
+
+print 'Ensure the ''dbo.PTSL_Dim_AnalysisMapping'' table has been updated with the relevant [MappedCategory] value'
+
+-- SUN first
+declare 
+	@DatabaseName varchar(50),
+	@SunDBFound tinyint,
+	@RebuildStart datetime,
+	@Now datetime,
+	@Seconds int,
+	@DatabaseId int,
+	@BusinessUnitPrefix varchar(3),
+	@BusinessUnitKey int
+
+set @RebuildStart=getdate()
+set @SunDBFound=0--no
+
+print 'Starting build/rebuild'+cast(@RebuildStart as varchar(100))
+INSERT INTO ptsl_log(log_message)  SELECT 'Starting build/rebuild'
+declare @DBs table
+	(
+	DatabaseName varchar(50),
+	DatabaseId int
+	)
+
+declare @BusinessUnits table
+	(
+	BusinessUnitPrefix varchar(3),
+	BusinessUnitKey int
+	)
+
+insert into @DBs
+select 
+	DatabaseName,
+	DatabaseId
+from 
+	[dbo].[PTSL_Database]
+where
+	SystemType='Sun' and
+	DatabaseActive=1
+
+while exists(select 1 from @DBs)
+	begin
+		set @SunDBFound=1 -- yes
+
+		select top 1 
+			@DatabaseName=DatabaseName ,
+			@DatabaseId=DatabaseId
+		from @DBs
+
+		print '##>> Sun database ['+@DatabaseName+'] about to process . . . <<##'
+		INSERT INTO ptsl_log(log_message) SELECT   '##>> Sun database ['+@DatabaseName+'] about to process . . . <<##'
+		--[1]. PTSL_ETL_D1_DimBusinessUnits - Gets the Business Units from Sun
+		set @Now=getdate()
+		print '@ Starting PTSL_ETL_D1_DimBusinessUnits'
+		exec dbo.PTSL_ETL_D1_DimBusinessUnits @DatabaseName=@DatabaseName
+		set @Seconds=datediff(SECOND,@Now,getdate())
+		print 'Finished PTSL_ETL_D1_DimBusinessUnits. Seconds to run : '+cast(@Seconds as varchar(100))
+
+		delete @BusinessUnits
+
+		insert into @BusinessUnits
+		select [BusinessUnitPrefix],BusinessUnitKey
+		from [dbo].[PTSL_Dim_BusinessUnits]
+		where [BusinessUnitActive]=1 and DatabaseId=@DatabaseId
+
+		while exists(select 1 from @BusinessUnits)
+			begin
+				select top 1 
+					@BusinessUnitPrefix=BusinessUnitPrefix ,
+					@BusinessUnitKey=BusinessUnitKey
+				from 
+					@BusinessUnits
+
+				print '####>> START Business Unit '+@BusinessUnitPrefix+' <<####'
+
+				--[2]. PTSL_ETL_D2_DimAnalysisList = Gets the analysis codes from Sun
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D2_DimAnalysisList'
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_D2_DimAnalysisList'
+				exec dbo.PTSL_ETL_D2_DimAnalysisList 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D2_DimAnalysisList. Seconds to run : '+cast(@Seconds as varchar(100))
+
+				--[3]. PTSL_ETL_D2_DimAnalysisMapping = Sets the 'analysis mappings' 
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D2_DimAnalysisMapping'
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_D2_DimAnalysisMapping'
+				exec dbo.PTSL_ETL_D2_DimAnalysisMapping 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D2_DimAnalysisMapping. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D2_DimAnalysisMapping. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[4]. PTSL_ETL_D2_DimBusinessUnitPeriodDates - Sets the business unit period dates
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D2_DimBusinessUnitPeriodDates'
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_D2_DimBusinessUnitPeriodDates'
+				exec dbo.PTSL_ETL_D2_DimBusinessUnitPeriodDates 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D2_DimBusinessUnitPeriodDates. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D2_DimBusinessUnitPeriodDates. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[5]. PTSL_ETL_D3_DimAccounts - Sets the GL accounts from Sun
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D3_DimAccounts'
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_D3_DimAccounts'
+				exec dbo.PTSL_ETL_D3_DimAccounts 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D3_DimAccounts. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D3_DimAccounts. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[6]. PTSL_ETL_D3_DimCurrencies - Sets the currency information
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D3_DimCurrencies'
+
+				exec dbo.PTSL_ETL_D3_DimCurrencies 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D3_DimCurrencies. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D3_DimCurrencies. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[7]. PTSL_ETL_D3_DimFinancialPeriods -  Builds unique period/year list
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D3_DimFinancialPeriods'
+
+				exec [dbo].[PTSL_ETL_D3_DimFinancialPeriods] 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D3_DimFinancialPeriods. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D3_DimFinancialPeriods. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[8]. PTSL_ETL_D3_DimLedgerAnalysis - Gets the ledger analysis information
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_D3_DimLedgerAnalysis'
+
+				exec dbo.PTSL_ETL_D3_DimLedgerAnalysis 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_D3_DimLedgerAnalysis. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Finished PTSL_ETL_D3_DimLedgerAnalysis. Seconds to run : '+cast(@Seconds as varchar(100))
+				--[9]. PTSL_ETL_DimData - Gets the main financial data from Sun. THIS IS THE MAIN ROUTINE FOR COLLATING AND MANIPULATING TRANSACTION DATA
+				set @Now=getdate()
+				print '@@ Starting PTSL_ETL_DimData'
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_DimData'
+				exec dbo.PTSL_ETL_DimData 
+					@DatabaseName=@DatabaseName,
+					@BusinessUnitKey=@BusinessUnitKey,
+					@DatabaseId=@DatabaseId,
+					@BusinessUnitPrefix=@BusinessUnitPrefix
+
+				set @Seconds=datediff(SECOND,@Now,getdate())
+				print '@@ Finished PTSL_ETL_DimData. Seconds to run : '+cast(@Seconds as varchar(100))
+				INSERT INTO ptsl_log(log_message) SELECT  '@@ Starting PTSL_ETL_DimData'
+				print '####>> END Business Unit '+@BusinessUnitPrefix+' <<####'
+				INSERT INTO ptsl_log(log_message) SELECT  '####>> END Business Unit '+@BusinessUnitPrefix+' <<####'
+				delete @BusinessUnits
+				where BusinessUnitPrefix=@BusinessUnitPrefix
+			end
+
+		print '##>> Sun database ['+@DatabaseName+'] finished <<##'
+
+		delete @DBs
+		where DatabaseName=@DatabaseName
+	end
+
+-- Routines that do *NOT* need to be database specific go here . . . 
+if @SunDBFound=1
+	begin
+		print '##>> Start generic ''Sun'' task(s) <<##'
+		--[1]. Profit and Loss
+		set @Now=getdate()
+		print 'Starting PTSL_ETL_PROFITANDLOSS'
+		exec [dbo].[PTSL_ETL_PROFITANDLOSS] 
+		set @Seconds=datediff(SECOND,@Now,getdate())
+		print 'Finished PTSL_ETL_PROFITANDLOSS. Seconds to run : '+cast(@Seconds as varchar(100))
+	end
+
+insert into @DBs
+select 
+	DatabaseName,
+	DatabaseId
+from 
+	[dbo].[PTSL_Database]
+where
+	SystemType='EAM' and
+	DatabaseActive=1
+
+while exists(select 1 from @DBs)
+	begin
+		select top 1 
+			@DatabaseName=DatabaseName ,
+			@DatabaseId=DatabaseId
+		from 
+			@DBs
+
+		print '##>> EAM database ['+@DatabaseName+'] about to process . . . <<##'
+
+		-- [1]. PTSL_ETL_EAM_DimPurchase - Gets PURCHASE data from EAM
+		set @Now=getdate()
+		print 'Starting PTSL_ETL_EAM_DimPurchase'
+		exec dbo.PTSL_ETL_EAM_DimPurchase @DatabaseName=@DatabaseName
+		set @Seconds=datediff(SECOND,@Now,getdate())
+		print 'Finished PTSL_ETL_EAM_DimPurchase. Seconds to run : '+cast(@Seconds as varchar(100))
+
+		-- [2]. PTSL_ETL_EAM_DimInvoices - Gets invoice data from EAM
+		set @Now=getdate()
+		print 'Starting PTSL_ETL_EAM_DimInvoices'
+		exec dbo.PTSL_ETL_EAM_DimInvoices @DatabaseName=@DatabaseName
+		set @Seconds=datediff(SECOND,@Now,getdate())
+		print 'Finished PTSL_ETL_EAM_DimInvoices. Seconds to run : '+cast(@Seconds as varchar(100))
+
+		print '##>> EAM database ['+@DatabaseName+'] finished <<##'
+		
+		delete @DBs
+		where DatabaseName=@DatabaseName
+	end
+
+set @RebuildStart=getdate()
+print 'Finished build/rebuild'+cast(@RebuildStart as varchar(100))
+
+
+/*
+EXEC dbo.PTSL_ETL_D3_DimAccounts @inserted=0, @updated=0
+EXEC dbo.PTSL_ETL_D3_DimCurrencies @inserted=0, @updated=0
+EXEC dbo.PTSL_ETL_D3_DimLedgerAnalysis @inserted=0, @updated=0
+EXEC dbo.PTSL_ETL_D3_DimFinancialPeriods @inserted=0
+
+EXEC dbo.PTSL_ETL_F1_FactLedgerData @inserted=0, @updated=0
+EXEC dbo.PTSL_ETL_F1_FactLedgerBudget @inserted=0, @updated=0
+EXEC dbo.PTSL_ETL_D4_DimLedgerTransaction @inserted=0, @updated=0
+
+--Populate P&L table from the above. It's not complex to warrant its own procedure
+TRUNCATE TABLE PTSL_Fact_ProfitandLoss
+INSERT INTO PTSL_Fact_ProfitandLoss
+SELECT * FROM Source.PTSL_Fact_ProfitandLoss
+*/
+
+
+GO
+
+

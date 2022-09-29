@@ -1,0 +1,121 @@
+
+ALTER VIEW [dbo].[PTSL_Azimuth_Management_Reporting_Data]
+  AS /* Need to populate an underlying table to get filters to work */
+  SELECT 
+financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name,Actual/-1000.0 as Actual ,Budget/-1000.0 as Budget,'' as extra_row_title
+ FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+ /* We could filter out null management1 and 2 codes, to hide the blank row that appears.
+	This blank row highlights account codes that are missing tags
+*/
+
+
+UNION /* Add in revenue totals.
+			Note
+				1 - MW to update all Revenue accounts with a management 1 reporting, so we can filter on that
+				2 - underlying man 2 values of revenues\intercompany revenues typically not to appear on report
+				3- These are opex totals so set them as accounttype 3
+		*/
+SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,69999 as  ManagementAccounts2Code, -- 61 and 63 are filtered out so don't return manaccounts2code
+		3,JV,Entity,Licence,Dept,Supplier,69999,'Revenues' as ManagementAccounts2Name,SUM(Actual/-1000.0),SUM(Budget/-1000.0),'' as extra_row_title
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts2Code in (61,63) -- note 1, can replace when done with ManagementAccounts1Code = 600
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name
+
+
+UNION /* Other Operating Expenses*/
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code, 81098 as ManagementAccounts2Code,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,81098,'Other Operating expenses' as ManagementAccounts2Name,SUM(Actual/-1000.0),SUM(Budget/-1000.0),'' as extra_row_title
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts1Code =800
+		AND ManagementAccounts2Code not in( 800)
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name
+
+UNION /* EBITDA*/
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code, 81099 as ManagementAccounts2Code,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,81099,'EBITDA' as ManagementAccounts2Name,SUM(Actual/-1000.0),SUM(Budget/-1000.0),'' as extra_row_title
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		ManagementAccounts1Code in(600,700,800)
+		
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,JV,Entity,Licence,Dept,Supplier,Sort_Order,ManagementAccounts2Name
+
+UNION /* Total OPEX*/
+	SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code, 99999 as ManagementAccounts2Code,
+		3 as AccountType,JV,Entity,Licence,Dept,Supplier,99999,'Total Opex' as ManagementAccounts2Name,SUM(Actual/-1000.0),SUM(Budget/-1000.0),'' as extra_row_title
+	FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+
+	WHERE 
+		AccountType = 3
+		
+	GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		JV,Entity,Licence,Dept,Supplier,Sort_Order
+
+
+UNION -- add dummy titles so we have consistent row titles [ie - we show the row title even if there is no associated data. This helps when we filter and drill]
+
+  SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code as ManagementAccounts2Code,
+		AccountType,'','','','','',Sort_Order,ManagementAccounts2Name,0,0,'dummy'
+ FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+		--Where ManagementAccounts1Code is not null -- null values lead to an extra row on the report that is not indented and doesn't group properly
+			--	AND ManagementAccounts2Code is not null
+		WHERE AccountType=3 /* Only need this on the OPEX tab. don't want to see it on Licence tab (filtered on manaccounts1code = 205). There is no205 for account type 3 */
+ GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,ManagementAccounts2Code,
+		AccountType,Sort_Order,ManagementAccounts2Name
+
+
+UNION -- add dummy titles for budget licence
+
+	  SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,205,ManagementAccounts2Code as ManagementAccounts2Code,
+		'','','','','','',Sort_Order,ManagementAccounts2Name,0,0,'dummy'
+ FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+		--Where ManagementAccounts1Code is not null -- null values lead to an extra row on the report that is not indented and doesn't group properly
+			--	AND ManagementAccounts2Code is not null
+		WHERE ManagementAccounts1Code=205
+ GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts2Code,
+		Sort_Order,ManagementAccounts2Name
+
+UNION  --dummy titles for revenues summary
+
+ SELECT 
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code,69999 as ManagementAccounts2Code,
+		3 ,'','','','','',69999,'Revenues',0,0,'dummy'
+ FROM 
+		[PTSL_Azimuth_Management_Reporting_Data_Table]
+		--Where ManagementAccounts1Code is not null -- null values lead to an extra row on the report that is not indented and doesn't group properly
+		WHERE AccountType=3 /* Only need this on the OPEX tab. don't want to see it on Licence tab (filtered on manaccounts1code = 205). There is no205 for account type 3 */
+ GROUP BY
+		financialyear,FinancialPeriod,ReportingPeriod,ManagementAccounts1Code
+		
+GO
+
+
+
+
